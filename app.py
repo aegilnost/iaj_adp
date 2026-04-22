@@ -1,7 +1,7 @@
 
-import os
 import io
 import json
+import os
 import datetime as dt
 from typing import Any, Dict, List
 
@@ -13,84 +13,78 @@ except Exception:
     OpenAI = None
 
 try:
-    from pypdf import PdfReader
-except Exception:
-    PdfReader = None
-
-try:
     import docx
 except Exception:
     docx = None
 
 APP_NAME = "Write and Come Back"
-APP_VERSION = "v0.10.0"
+APP_VERSION = "v0.11.0"
 
 QUICK_STEPS = [
     "Welcome",
-    "Read My Materials",
-    "Choose the Main Legal Point",
-    "Add to Your Paper",
-    "Start Writing Package",
-    "Review & Export",
+    "Load Layer 1 Context",
+    "Start from This",
+    "Write Your Core Idea",
+    "Quick Writing Starter",
+    "Write Now & Export",
 ]
 
-DEEP_STEPS = [
+FULL_STEPS = [
+    "Verify Authorities",
+    "Tighten the Claim",
     "Strengthen Support",
-    "Tighten the Argument",
-    "Improve the Writing Pack",
+    "Improve Writing Pack",
+    "Export Refined Pack",
 ]
 
 TIME_EST = {
     "quick_0": "1–2 min",
-    "quick_1": "3–6 min",
-    "quick_2": "4–7 min",
-    "quick_3": "3–6 min",
-    "quick_4": "2–4 min",
-    "quick_5": "2–3 min",
-    "deep_0": "4–8 min",
-    "deep_1": "4–8 min",
-    "deep_2": "3–6 min",
+    "quick_1": "1–3 min",
+    "quick_2": "1–2 min",
+    "quick_3": "3–5 min",
+    "quick_4": "1–2 min",
+    "quick_5": "1–2 min",
+    "full_0": "2–4 min",
+    "full_1": "2–4 min",
+    "full_2": "2–4 min",
+    "full_3": "2–4 min",
+    "full_4": "1–2 min",
 }
 
-LAW_SUGGESTIONS = {
-    "data privacy act": ("Republic Act No. 10173 (Data Privacy Act of 2012)", "https://www.officialgazette.gov.ph/2012/08/15/republic-act-no-10173/"),
-    "constitution": ("1987 Constitution of the Republic of the Philippines", "https://www.officialgazette.gov.ph/constitutions/1987-constitution/"),
-    "anti-money laundering act": ("Republic Act No. 9160 (Anti-Money Laundering Act of 2001)", "https://lawphil.net/statutes/repacts/ra2001/ra_9160_2001.html"),
-    "amla": ("Republic Act No. 9160 (Anti-Money Laundering Act of 2001)", "https://lawphil.net/statutes/repacts/ra2001/ra_9160_2001.html"),
-    "bank secrecy": ("Republic Act No. 1405 (Law on Secrecy of Bank Deposits)", "https://lawphil.net/statutes/repacts/ra1955/ra_1405_1955.html"),
-}
-
+# -----------------------------------
+# State
+# -----------------------------------
 def init_state():
     if "project" not in st.session_state:
         st.session_state.project = {
             "version": APP_VERSION,
             "created_at": dt.datetime.now().isoformat(timespec="seconds"),
             "updated_at": dt.datetime.now().isoformat(timespec="seconds"),
-            "phase": "quick",  # quick or deep
+            "phase": "quick",
             "step": 0,
             "answers": {},
             "outputs": {},
             "flags": [],
             "feedback": {},
             "api_log": [],
-            "ran_steps": [],
+            "layer1_loaded": False,
         }
 
 def touch():
     st.session_state.project["updated_at"] = dt.datetime.now().isoformat(timespec="seconds")
 
-def ans(key, default=None):
+def ans(key: str, default=None):
     return st.session_state.project["answers"].get(key, default)
 
-def set_ans(key, value):
+def set_ans(key: str, value: Any):
     st.session_state.project["answers"][key] = value
     touch()
 
-def set_out(key, value):
+def set_out(key: str, value: Any):
     st.session_state.project["outputs"][key] = value
     touch()
 
-def add_flag(text):
+def add_flag(text: str):
     if text and text not in st.session_state.project["flags"]:
         st.session_state.project["flags"].append(text)
         touch()
@@ -109,12 +103,16 @@ def get_openai_client():
 def call_model_json(stage: str, system_prompt: str, user_prompt: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
     client = get_openai_client()
     if client is None:
-        st.session_state.project["api_log"].append({"stage": stage, "mode": "mock", "time": dt.datetime.now().isoformat(timespec="seconds")})
+        st.session_state.project["api_log"].append({
+            "stage": stage,
+            "mode": "mock",
+            "time": dt.datetime.now().isoformat(timespec="seconds"),
+        })
         return fallback
     try:
         resp = client.chat.completions.create(
             model="gpt-4.1",
-            temperature=0.3,
+            temperature=0.35,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -122,67 +120,55 @@ def call_model_json(stage: str, system_prompt: str, user_prompt: str, fallback: 
             ],
         )
         data = json.loads(resp.choices[0].message.content or "{}")
-        st.session_state.project["api_log"].append({"stage": stage, "mode": "openai", "time": dt.datetime.now().isoformat(timespec="seconds")})
-        return data
+        st.session_state.project["api_log"].append({
+            "stage": stage,
+            "mode": "openai",
+            "time": dt.datetime.now().isoformat(timespec="seconds"),
+        })
+        return data or fallback
     except Exception as e:
-        st.warning(f"Model call failed at {stage}. Using fallback.")
-        st.session_state.project["api_log"].append({"stage": stage, "mode": "fallback", "error": str(e), "time": dt.datetime.now().isoformat(timespec="seconds")})
+        st.warning(f"Model call failed at {stage}. Using fallback instead.")
+        st.session_state.project["api_log"].append({
+            "stage": stage,
+            "mode": "fallback",
+            "error": str(e),
+            "time": dt.datetime.now().isoformat(timespec="seconds"),
+        })
         return fallback
 
-def extract_text(uploaded_file) -> str:
-    name = uploaded_file.name.lower()
-    raw = uploaded_file.read()
-    uploaded_file.seek(0)
-    if name.endswith((".txt", ".md")):
-        return raw.decode("utf-8", errors="ignore")
-    if name.endswith(".docx") and docx is not None:
-        d = docx.Document(io.BytesIO(raw))
-        return "\n".join(p.text for p in d.paragraphs if p.text.strip())
-    if name.endswith(".pdf") and PdfReader is not None:
-        reader = PdfReader(io.BytesIO(raw))
-        parts = []
-        for page in reader.pages[:30]:
-            parts.append(page.extract_text() or "")
-        return "\n".join(parts)
-    return ""
-
-def suggest_laws(query: str):
-    q = (query or "").strip().lower()
-    if not q:
-        return []
-    out = []
-    for k, v in LAW_SUGGESTIONS.items():
-        if q in k or k in q:
-            out.append({"title": v[0], "link": v[1]})
-    return out[:5]
-
+# -----------------------------------
+# UI Helpers
+# -----------------------------------
 def quote_box(title: str, body: str):
     st.markdown(f"""
     <div style="background:#f7f9fc;border:1px solid #dce3ee;border-radius:12px;padding:12px 14px;margin-bottom:12px">
       <div style="font-size:0.84rem;color:#445; font-weight:700; margin-bottom:6px">{title}</div>
-      <div style="font-size:0.95rem;color:#222">{body}</div>
+      <div style="font-size:0.95rem;color:#222; line-height:1.45">{body}</div>
     </div>
     """, unsafe_allow_html=True)
 
 def progress():
     phase = st.session_state.project["phase"]
     step = st.session_state.project["step"]
-    steps = QUICK_STEPS if phase == "quick" else DEEP_STEPS
-    total = len(steps)
-    pct = int((step + 1) / total * 100)
+    steps = QUICK_STEPS if phase == "quick" else FULL_STEPS
+    pct = int((step + 1) / len(steps) * 100)
+
     st.markdown("""
     <style>
-    .stepcard{border:1px solid #dce3ee;border-radius:14px;background:#f8fbff;padding:10px;min-height:76px}
+    .stepcard{border:1px solid #dce3ee;border-radius:14px;background:#f8fbff;padding:10px;min-height:86px}
     .stepcard.active{background:#173b7a;color:white;border-color:#173b7a}
     .stepcard.done{background:#eef5ff}
     .flag{display:inline-block;background:#fff3cd;border:1px solid #ffe08a;color:#7a5b00;border-radius:999px;padding:4px 10px;font-size:.82rem;margin:3px 6px 0 0}
     .req{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.75rem;background:#eef5ff;color:#173b7a;margin-right:6px}
     .opt{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.75rem;background:#f5f5f5;color:#666;margin-right:6px}
+    .good{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.75rem;background:#ecfdf3;color:#12743b;margin-right:6px}
     </style>
     """, unsafe_allow_html=True)
-    st.write(f"**{APP_NAME}** · {APP_VERSION} · {'Quick Pass' if phase == 'quick' else 'Deep Pass'}")
+
+    st.write(f"**{APP_NAME}** · {APP_VERSION} · {'Quick Pass' if phase == 'quick' else 'Full Pass'}")
     st.progress(pct / 100)
-    cols = st.columns(total)
+
+    cols = st.columns(len(steps))
     for i, name in enumerate(steps):
         cls = "stepcard active" if i == step else ("stepcard done" if i < step else "stepcard")
         key = f"{phase}_{i}"
@@ -194,82 +180,148 @@ def progress():
 def feedback_sidebar():
     phase = st.session_state.project["phase"]
     step = st.session_state.project["step"]
-    name = (QUICK_STEPS if phase == "quick" else DEEP_STEPS)[step]
-    label = f"{phase.title()} — {name}"
+    steps = QUICK_STEPS if phase == "quick" else FULL_STEPS
+    label = f"{phase.title()} — {steps[step]}"
     fb = st.session_state.project["feedback"].setdefault(label, {})
     st.sidebar.markdown("## Notes for the next version")
-    fb["worked"] = st.sidebar.text_area("What worked", value=fb.get("worked",""), key=f"worked_{label}")
-    fb["confusing"] = st.sidebar.text_area("What was confusing", value=fb.get("confusing",""), key=f"conf_{label}")
-    fb["too_much"] = st.sidebar.text_area("What felt too much", value=fb.get("too_much",""), key=f"too_{label}")
-    fb["missing"] = st.sidebar.text_area("What is missing", value=fb.get("missing",""), key=f"miss_{label}")
-    fb["notes"] = st.sidebar.text_area("Other notes", value=fb.get("notes",""), key=f"notes_{label}")
+    fb["worked"] = st.sidebar.text_area("What worked", value=fb.get("worked", ""), key=f"worked_{label}")
+    fb["confusing"] = st.sidebar.text_area("What was confusing", value=fb.get("confusing", ""), key=f"conf_{label}")
+    fb["too_much"] = st.sidebar.text_area("What felt too much", value=fb.get("too_much", ""), key=f"too_{label}")
+    fb["missing"] = st.sidebar.text_area("What is missing", value=fb.get("missing", ""), key=f"miss_{label}")
+    fb["notes"] = st.sidebar.text_area("Other notes", value=fb.get("notes", ""), key=f"notes_{label}")
     touch()
 
-def make_machine_export():
+def make_machine_export() -> str:
     return json.dumps(st.session_state.project, indent=2, ensure_ascii=False)
 
-def make_human_export():
-    d = docx.Document() if docx is not None else None
-    if d is None:
+def make_human_export() -> bytes:
+    if docx is None:
         return make_machine_export().encode("utf-8")
+
+    d = docx.Document()
     p = st.session_state.project
     d.add_heading(f"{APP_NAME} — Pre-Writing Kit", 0)
     d.add_paragraph(f"Version: {p['version']}")
     d.add_paragraph(f"Created: {p['created_at']}")
     d.add_paragraph(f"Updated: {p['updated_at']}")
+
+    d.add_heading("Layer 1 Context", level=1)
+    for key in ["layer1_materials_summary", "layer1_best_direction_title", "layer1_best_direction_reason"]:
+        if ans(key):
+            d.add_paragraph(str(ans(key)))
+
     d.add_heading("Quick Pass", level=1)
-    for key in ["materials_materials_summary", "selected_legal_point", "starter_starter_summary", "deepen_strengthened_summary"]:
-        val = p["answers"].get(key)
-        if val:
-            d.add_paragraph(str(val))
-    if p["answers"].get("starter_outline"):
-        d.add_heading("Outline", level=2)
-        for item in p["answers"]["starter_outline"]:
+    for key in ["quick_selected_point", "quick_selected_point_user_edit", "quick_core_idea", "quick_result_summary"]:
+        if ans(key):
+            d.add_paragraph(str(ans(key)))
+
+    if ans("quick_outline"):
+        d.add_heading("Quick Outline", level=2)
+        for item in ans("quick_outline", []):
             d.add_paragraph(str(item), style="List Number")
-    wp = p["answers"].get("writing_package")
-    if wp:
-        d.add_heading("Writing Package", level=2)
-        d.add_paragraph(wp.get("abstract_seed",""))
+
+    if ans("quick_writing_package"):
+        wp = ans("quick_writing_package")
+        d.add_heading("Quick Writing Package", level=2)
+        d.add_paragraph("Abstract seed:")
+        d.add_paragraph(str(wp.get("abstract_seed", "")))
+        d.add_paragraph("Opening options:")
         for item in wp.get("opening_options", []):
             d.add_paragraph(str(item), style="List Bullet")
-    if p["answers"].get("deep_support_summary") or p["answers"].get("deep_argument_summary") or p["answers"].get("deep_writing_summary"):
-        d.add_heading("Deep Pass", level=1)
-        for key in ["deep_support_summary", "deep_argument_summary", "deep_writing_summary"]:
-            val = p["answers"].get(key)
-            if val:
-                d.add_paragraph(str(val))
+        d.add_paragraph("Section cues:")
+        for k, v in wp.get("section_cues", {}).items():
+            d.add_paragraph(f"{k}: {v}", style="List Bullet")
+        d.add_paragraph("Write-now instruction:")
+        d.add_paragraph(str(wp.get("write_now_prompt", "")))
+
+    if ans("full_refined_claim") or ans("full_verified_authorities") or ans("full_improved_writing_pack"):
+        d.add_heading("Full Pass", level=1)
+        if ans("full_refined_claim"):
+            d.add_paragraph(f"Refined claim: {ans('full_refined_claim')}")
+        if ans("full_support_summary"):
+            d.add_paragraph(f"Support summary: {ans('full_support_summary')}")
+        if ans("full_improved_writing_summary"):
+            d.add_paragraph(f"Writing pack improvements: {ans('full_improved_writing_summary')}")
+
     if p.get("flags"):
         d.add_heading("Carry-forward Flags", level=1)
         for f in p["flags"]:
             d.add_paragraph(str(f), style="List Bullet")
+
     d.add_heading("What to do next", level=1)
     d.add_paragraph("1. Read this kit once without editing.")
-    d.add_paragraph("2. Draft one section in your own words.")
-    d.add_paragraph("3. Return to Deep Pass only if you need stronger support, a tighter argument, or a better writing pack.")
+    d.add_paragraph("2. Write one section in your own words.")
+    d.add_paragraph("3. Keep writing before refining.")
+    d.add_paragraph("4. Return to Full Pass only if you need stronger support, a tighter claim, or a better writing pack.")
+
     bio = io.BytesIO()
     d.save(bio)
     bio.seek(0)
     return bio.getvalue()
 
-def downstream_warning(changed_from_quick: int):
-    st.warning("You may revisit an earlier quick-pass step. But if you change a response and run the model again, later outputs will be affected and should be rebuilt from that step forward.")
-    if st.button("Clear downstream outputs from this step"):
-        step_keys = {
-            1: ["materials_materials_summary","materials_keywords","materials_legal_arguments","materials_authorities_mentioned","materials_possible_directions","materials_quotes"],
-            2: ["selected_legal_point","main_point","main_emphasis","starter_starter_summary","starter_outline","starter_support_map","starter_missing_source_flags","starter_abstract_seed"],
-            3: ["scope_in","scope_out","support_gap","weakness","deepen_strengthened_summary","deepen_refined_outline","deepen_new_flags"],
-            4: ["writing_package", "deep_support_summary", "deep_argument_summary", "deep_writing_summary"],
+def clear_downstream(mode: str, from_step: int):
+    if mode == "quick":
+        mapping = {
+            1: ["layer1_raw", "layer1_materials_summary", "layer1_legal_arguments", "layer1_authorities", "layer1_article_directions", "layer1_best_direction_title", "layer1_best_direction_reason"],
+            2: ["quick_selected_point", "quick_selected_point_user_edit", "quick_result_summary", "quick_outline", "quick_working_title", "quick_working_question"],
+            3: ["quick_core_idea", "quick_goal_signal", "quick_weak_point"],
+            4: ["quick_writing_package"],
         }
-        for idx, ks in step_keys.items():
-            if idx >= changed_from_quick:
-                for k in ks:
-                    st.session_state.project["answers"].pop(k, None)
-                    st.session_state.project["outputs"].pop(k, None)
-        st.session_state.project["flags"] = []
+        for idx, keys in mapping.items():
+            if idx >= from_step:
+                for key in keys:
+                    st.session_state.project["answers"].pop(key, None)
+                    st.session_state.project["outputs"].pop(key, None)
+    else:
+        mapping = {
+            0: ["full_verified_authorities", "full_authority_additions", "full_authority_removals"],
+            1: ["full_refined_claim"],
+            2: ["full_support_summary", "full_support_needs"],
+            3: ["full_improved_writing_pack", "full_improved_writing_summary"],
+        }
+        for idx, keys in mapping.items():
+            if idx >= from_step:
+                for key in keys:
+                    st.session_state.project["answers"].pop(key, None)
+                    st.session_state.project["outputs"].pop(key, None)
+    touch()
+
+def revisit_warning(mode: str, from_step: int):
+    st.warning("You may revisit an earlier step. But if you change a response and run the model again, later outputs should be rebuilt from this step forward.")
+    if st.button("Clear downstream outputs from this step"):
+        clear_downstream(mode, from_step)
         st.success("Later outputs were cleared. Re-run from this step.")
-        touch()
         st.rerun()
 
+def parse_layer1_json(data: Dict[str, Any]):
+    set_ans("layer1_raw", data)
+    set_ans("layer1_materials_summary", data.get("materials_summary") or data.get("materials_materials_summary") or "")
+    set_ans("layer1_legal_arguments", data.get("legal_arguments") or data.get("materials_legal_arguments") or [])
+    set_ans("layer1_authorities", data.get("authorities") or data.get("materials_authorities_mentioned") or [])
+    set_ans("layer1_article_directions", data.get("article_directions") or data.get("materials_possible_directions") or [])
+
+    refinement = data.get("refinement") or data.get("section3_refinement") or {}
+    if isinstance(refinement, dict):
+        set_ans("layer1_best_direction_title", refinement.get("strongest_direction") or "")
+        set_ans("layer1_best_direction_reason", refinement.get("why_strongest") or "")
+        set_ans("layer1_clarify_before_writing", refinement.get("what_to_clarify") or "")
+
+    # fallback if refinement not present
+    if not ans("layer1_best_direction_title") and ans("layer1_article_directions"):
+        dirs = ans("layer1_article_directions")
+        first = dirs[0]
+        if isinstance(first, dict):
+            set_ans("layer1_best_direction_title", first.get("title") or first.get("direction_title") or "Suggested starting direction")
+            set_ans("layer1_best_direction_reason", first.get("why_viable") or first.get("description") or "")
+        else:
+            set_ans("layer1_best_direction_title", str(first))
+            set_ans("layer1_best_direction_reason", "This was the first direction surfaced from Layer 1.")
+    st.session_state.project["layer1_loaded"] = True
+    touch()
+
+# -----------------------------------
+# App
+# -----------------------------------
 st.set_page_config(page_title=APP_NAME, layout="wide")
 init_state()
 progress()
@@ -281,9 +333,21 @@ with st.sidebar:
     st.divider()
     feedback_sidebar()
     st.divider()
-    st.download_button("Export machine-readable file (.json)", data=make_machine_export(), file_name=f"checkpoint_{APP_VERSION}.json", mime="application/json", use_container_width=True)
-    st.download_button("Export human-readable pre-writing kit (.docx)", data=make_human_export(), file_name=f"pre_writing_kit_{APP_VERSION}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-    uploaded_cp = st.file_uploader("Load saved checkpoint", type=["json"], key="load_cp")
+    st.download_button(
+        "Export machine-readable file (.json)",
+        data=make_machine_export(),
+        file_name=f"checkpoint_{APP_VERSION}.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+    st.download_button(
+        "Export human-readable pre-writing kit (.docx)",
+        data=make_human_export(),
+        file_name=f"pre_writing_kit_{APP_VERSION}.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        use_container_width=True,
+    )
+    uploaded_cp = st.file_uploader("Load saved checkpoint", type=["json"], key="load_checkpoint")
     if uploaded_cp and st.button("Load this checkpoint", use_container_width=True):
         st.session_state.project = json.load(uploaded_cp)
         st.success("Checkpoint loaded.")
@@ -292,404 +356,459 @@ with st.sidebar:
 phase = st.session_state.project["phase"]
 step = st.session_state.project["step"]
 
+# -----------------------------------
 # QUICK PASS
+# -----------------------------------
 if phase == "quick":
     if step == 0:
         st.markdown("## Step 1 — Welcome")
-        quote_box("What this platform does", "It reads your lecture materials, pulls out the strongest legal point it can find, and gets you to a first article package quickly. Deep Pass comes only after Quick Pass is done.")
-        quote_box("What to expect", "Quick Pass comes first. The goal is movement, not perfection. After you finish Quick Pass, you can continue to Deep Pass to strengthen support, tighten the argument, and improve the writing package.")
+        quote_box(
+            "What this platform does",
+            "It takes the lecture context already prepared in Layer 1, then helps you move quickly from that context to a workable writing starter. Quick Pass is lean on purpose. The goal is to help you write before you edit."
+        )
+        quote_box(
+            "What to expect",
+            "Quick Pass comes first. It should feel light and forward-moving. Full Pass comes only after Quick Pass is done, and only if you want to make the paper stronger."
+        )
         st.markdown("### Before you begin")
-        st.markdown('<span class="req">Required</span> Start the quick pass.', unsafe_allow_html=True)
-        st.caption("Indicative time for the whole quick pass: about 15–25 minutes, depending on your materials.")
-        st.info("Robustness note: model-assisted results may vary slightly across runs. The goal is a workable starting point every time, then a stronger second pass if needed.")
+        st.markdown(f'<span class="req">Required</span><span class="opt">Time: {TIME_EST["quick_0"]}</span>', unsafe_allow_html=True)
+        st.write("Upload the Layer 1 JSON when you are ready.")
         if st.button("Start Quick Pass", type="primary"):
             st.session_state.project["step"] = 1
             touch()
             st.rerun()
 
     elif step == 1:
-        st.markdown("## Step 2 — Read My Materials")
-        downstream_warning(1)
-        quote_box("What to do here", "This step should ideally already be pre-loaded by your team with the lecture transcript and slide deck. You may still add optional materials here. The platform will read the materials first and extract legal arguments, not just any argument.")
-        st.markdown(f'<span class="req">Required</span> Upload or confirm lecture materials. <span class="opt">Time: {TIME_EST["quick_1"]}</span>', unsafe_allow_html=True)
-        preloaded_note = st.text_input("What has already been pre-loaded by the team? (Optional)", value=ans("preloaded_note",""))
-        materials = st.file_uploader("Upload transcript, slides, notes, and optional bionote/CV", type=["pdf","docx","txt","md"], accept_multiple_files=True)
-        st.markdown("**Optional.** Bionote or CV context")
-        speaker_note = st.text_area("Bionote or CV note", value=ans("speaker_note",""), height=100)
-        st.markdown("**Optional.** Mention a law, case, or rule only if you already have one in mind.")
-        legal_text = st.text_input("Law, case, or rule to search (optional)", value="")
-        suggestions = suggest_laws(legal_text)
-        selected_laws = ans("selected_laws", [])
-        if suggestions:
-            for s in suggestions:
-                if st.checkbox(f"{s['title']} — {s['link']}", key=f"law_{s['title']}"):
-                    if s["title"] not in selected_laws:
-                        selected_laws.append(s["title"])
-        if st.button("Read the materials", type="primary"):
-            set_ans("preloaded_note", preloaded_note)
-            set_ans("speaker_note", speaker_note)
-            set_ans("selected_laws", selected_laws)
-            filenames, texts = [], []
-            if materials:
-                for f in materials:
-                    filenames.append(f.name)
-                    texts.append(f"\n\n### FILE: {f.name}\n{extract_text(f)[:30000]}")
-            set_ans("uploaded_files", filenames)
-            fallback = {
-                "materials_summary": "The materials suggest one or more legal issues that can be turned into an article. The next step is to choose the strongest legal point to start from.",
-                "keywords": ["legal point", "doctrine", "rule", "case law"],
-                "legal_arguments": [
-                    "A legal argument appears to arise from how a rule, doctrine, or statutory requirement is being interpreted or applied.",
-                    "A second legal argument appears to arise from the legal consequence that follows from that interpretation.",
-                    "A third legal argument may involve institutional or enforcement implications of the lecture's main issue.",
-                ],
-                "authorities_mentioned": selected_laws,
-                "possible_directions": [
-                    "Clarify the legal rule at the center of the lecture.",
-                    "Show that the current doctrinal treatment is incomplete or unclear.",
-                    "Explain the legal consequence that should follow from the doctrine or rule discussed.",
-                ],
-                "quotes": [],
-            }
-            system = """
-Read the lecture materials and extract legal arguments, not just any argument.
-Return JSON with:
-materials_summary
-keywords
-legal_arguments (3 only, strongest first)
-authorities_mentioned
-possible_directions
-quotes (up to 3 short quote objects with text and source label)
-Use the lecture's language where possible.
-"""
-            user = f"""Preloaded note: {preloaded_note}
-Speaker note: {speaker_note}
-Selected laws: {selected_laws}
-Files: {filenames}
-MATERIALS:
-{"".join(texts)[:80000]}
-"""
-            with st.spinner("Reading materials..."):
-                data = call_model_json("read_materials", system, user, fallback)
-            set_ans("materials_materials_summary", data.get("materials_summary"))
-            set_ans("materials_keywords", data.get("keywords", []))
-            set_ans("materials_legal_arguments", data.get("legal_arguments", []))
-            set_ans("materials_authorities_mentioned", data.get("authorities_mentioned", []))
-            set_ans("materials_possible_directions", data.get("possible_directions", []))
-            set_ans("materials_quotes", data.get("quotes", []))
+        st.markdown("## Step 2 — Load Layer 1 Context")
+        revisit_warning("quick", 1)
+        quote_box(
+            "What to do here",
+            "Upload the JSON produced by your team in Layer 1. The app will ingest the lecture context, surface the strongest direction, and let you confirm your starting point without redoing the earlier extraction work."
+        )
+        st.markdown(f'<span class="req">Required</span><span class="opt">Time: {TIME_EST["quick_1"]}</span>', unsafe_allow_html=True)
+        layer1_file = st.file_uploader("Upload Layer 1 JSON", type=["json"], key="layer1_json")
+        if layer1_file and st.button("Load Layer 1 context", type="primary"):
+            data = json.load(layer1_file)
+            parse_layer1_json(data)
             st.session_state.project["step"] = 2
-            touch()
             st.rerun()
-        if ans("materials_materials_summary"):
-            st.markdown("### What the app found in your materials")
-            st.write(ans("materials_materials_summary"))
-            st.write("**Top legal points, in decreasing order**")
-            for i, item in enumerate(ans("materials_legal_arguments", []), 1):
-                st.markdown(f"{i}. {item}")
+
+        if st.session_state.project["layer1_loaded"]:
+            st.markdown("### Layer 1 summary")
+            st.write(ans("layer1_materials_summary"))
+            st.markdown("**Top legal arguments already found**")
+            for i, item in enumerate(ans("layer1_legal_arguments", []), 1):
+                if isinstance(item, dict):
+                    st.markdown(f"{i}. {item.get('argument') or item.get('title') or str(item)}")
+                else:
+                    st.markdown(f"{i}. {item}")
+            st.markdown("**Suggested starting direction**")
+            st.write(ans("layer1_best_direction_title") or "No single strongest direction stored yet.")
+            if ans("layer1_best_direction_reason"):
+                st.caption(ans("layer1_best_direction_reason"))
 
     elif step == 2:
-        st.markdown("## Step 3 — Choose the Main Legal Point")
-        downstream_warning(2)
-        quote_box("What to do here", "Choose the legal point that is closest to the title and the main points raised in the lecture. This legal point will be the starting point of your paper, which you can revise eventually.")
-        st.markdown(f'<span class="req">Required</span> Pick one legal point and confirm it in your own words. <span class="opt">Time: {TIME_EST["quick_2"]}</span>', unsafe_allow_html=True)
-        pts = ans("materials_legal_arguments", [])
-        options = [""] + [f"{i}. {p}" for i, p in enumerate(pts, 1)] + ["Something else"]
-        selected = st.radio("Choose the legal point closest to your lecture", options=options, index=0)
-        main_point = st.text_area("State the legal point you want to begin with", value=ans("main_point",""), height=120)
-        if st.button("Confirm legal point and build the article starter", type="primary"):
-            set_ans("selected_legal_point", selected)
-            set_ans("main_point", main_point)
-            fallback = {
-                "main_point_cleaned": main_point or selected,
-                "working_question": "What legal question should the paper answer based on this starting point?",
-                "working_title": "A Legal Issue Emerging from the Lecture",
-                "reason_for_choice": "This starting point is close enough to the lecture to support a first article version.",
-                "starter_summary": "This paper begins from a legal point surfaced in the lecture and turns it into a workable article focus.",
-                "starter_outline": [
-                    "Introduction and legal problem",
-                    "Rule, doctrine, or legal framework",
-                    "Main legal tension",
-                    "Why the current treatment is insufficient or contested",
-                    "Proposed resolution or clarified position",
-                    "Conclusion",
-                ],
-                "starter_support_map": {
-                    "supports_main_point": ans("materials_authorities_mentioned", []),
-                    "related_but_not_yet_enough": [],
-                    "may_be_missing_but_not_blocking": [],
-                },
-                "starter_missing_source_flags": [],
-                "starter_abstract_seed": "This article examines a legal issue surfaced in the lecture and argues for a clearer doctrinal treatment.",
-            }
-            system = """
-Given the selected legal point, return JSON with:
-main_point_cleaned
-working_question
-working_title
-reason_for_choice
-starter_summary
-starter_outline
-starter_support_map
-starter_missing_source_flags
-starter_abstract_seed
-Keep it practical. This is still a write-first stage.
-"""
-            user = f"""Legal arguments: {pts}
-Selected legal point: {selected}
-Writer's own statement: {main_point}
-Authorities already visible: {ans('materials_authorities_mentioned',[])}
-"""
-            with st.spinner("Building from the legal point..."):
-                data = call_model_json("choose_legal_point_plus_starter", system, user, fallback)
-            set_out("main_point_result", {
-                "main_point_cleaned": data.get("main_point_cleaned"),
-                "working_question": data.get("working_question"),
-                "working_title": data.get("working_title"),
-                "reason_for_choice": data.get("reason_for_choice"),
-            })
-            set_ans("starter_starter_summary", data.get("starter_summary"))
-            set_ans("starter_outline", data.get("starter_outline"))
-            set_ans("starter_support_map", data.get("starter_support_map"))
-            set_ans("starter_missing_source_flags", data.get("starter_missing_source_flags"))
-            set_ans("starter_abstract_seed", data.get("starter_abstract_seed"))
-            for f in data.get("starter_missing_source_flags", []):
-                add_flag(f)
+        st.markdown("## Step 3 — Start from This")
+        revisit_warning("quick", 2)
+        quote_box(
+            "What to do here",
+            "The app now suggests a starting point based on Layer 1. You do not need to overthink this. Accept it, slightly edit it, or replace it completely. This is just the starting point of your paper."
+        )
+        st.markdown(f'<span class="req">Required</span><span class="opt">Time: {TIME_EST["quick_2"]}</span>', unsafe_allow_html=True)
+
+        suggested = ans("layer1_best_direction_title") or "Suggested starting direction not found in Layer 1."
+        st.markdown("### Suggested starting point")
+        st.info(suggested)
+
+        st.markdown("### Choose what to do")
+        choice = st.radio(
+            "Starting point action",
+            ["Accept as is", "Slightly edit it", "Replace it completely"],
+            index=0,
+        )
+
+        edit_text = ""
+        if choice == "Slightly edit it":
+            edit_text = st.text_area("Edit the starting point", value=suggested, height=120)
+        elif choice == "Replace it completely":
+            edit_text = st.text_area("Write your own starting point", value=ans("quick_selected_point_user_edit", ""), height=120)
+
+        additional = st.text_area(
+            "Optional: Is there anything else you want the app to keep in mind before we continue?",
+            value=ans("quick_extra_consideration", ""),
+            height=90,
+        )
+
+        if st.button("Continue from this starting point", type="primary"):
+            final_point = suggested
+            if choice in ["Slightly edit it", "Replace it completely"]:
+                final_point = edit_text.strip() or suggested
+            set_ans("quick_selected_point", suggested)
+            set_ans("quick_selected_point_user_edit", final_point)
+            set_ans("quick_extra_consideration", additional)
             st.session_state.project["step"] = 3
-            touch()
             st.rerun()
-        if st.session_state.project["outputs"].get("main_point_result"):
-            res = st.session_state.project["outputs"]["main_point_result"]
-            st.write(f"**Main legal point**: {res.get('main_point_cleaned','')}")
-            st.write(f"**Working question**: {res.get('working_question','')}")
-            st.write(f"**Working title**: {res.get('working_title','')}")
-            st.write("**Starter outline**")
-            for i, item in enumerate(ans("starter_outline", []), 1):
-                st.markdown(f"{i}. {item}")
 
     elif step == 3:
-        st.markdown("## Step 4 — Add to Your Paper")
-        downstream_warning(3)
-        quote_box("What to do here", "To add to your ideas to the paper, here are further questions that might be useful to be answered. Not all fields need to be filled. Use what helps.")
-        st.markdown(f'<span class="opt">Optional refinement step</span><span class="opt">Time: {TIME_EST["quick_3"]}</span>', unsafe_allow_html=True)
-        left, right = st.columns(2)
-        with left:
-            st.write("**Left side — what is already inside the paper**")
-            scope_in = st.text_area("What clearly belongs inside the paper?", value=ans("scope_in",""), height=120)
-        with right:
-            st.write("**Right side — what consequence should follow from the legal point**")
-            consequence = st.text_area("What consequence or legal result do you want the paper to show?", value=ans("scope_out",""), height=120)
-        support_gap = st.text_area("Optional: what authority still feels missing?", value=ans("support_gap",""), height=90)
-        weakness = st.text_area("Optional: what is the biggest weakness or uncertainty for now?", value=ans("weakness",""), height=90)
-        if st.button("Add these refinements", type="primary"):
-            set_ans("scope_in", scope_in)
-            set_ans("scope_out", consequence)
-            set_ans("support_gap", support_gap)
-            set_ans("weakness", weakness)
-            if support_gap:
-                add_flag(f"Possible missing authority: {support_gap}")
-            if weakness:
-                add_flag(f"Known weakness: {weakness}")
+        st.markdown("## Step 4 — Write Your Core Idea")
+        revisit_warning("quick", 3)
+        quote_box(
+            "What to do here",
+            "This is the most important step in Quick Pass. In 3–5 sentences, explain your paper idea in your own words. Do not worry about structure, grammar, or completeness. Just explain what you want to say."
+        )
+        st.markdown(f'<span class="req">Required</span><span class="opt">Time: {TIME_EST["quick_3"]}</span>', unsafe_allow_html=True)
+
+        core_idea = st.text_area(
+            "Write your core idea",
+            value=ans("quick_core_idea", ""),
+            height=180,
+            placeholder="Write in your own words. Keep moving. Do not edit too much.",
+        )
+        st.markdown("### Optional quick signals")
+        st.caption("Answer only if helpful.")
+        goal_signal = st.text_area(
+            "What result or conclusion do you want the paper to reach?",
+            value=ans("quick_goal_signal", ""),
+            height=90,
+        )
+        weak_point = st.text_area(
+            "What part of your idea feels weakest right now?",
+            value=ans("quick_weak_point", ""),
+            height=90,
+        )
+
+        if st.button("Build the quick writing starter", type="primary"):
+            set_ans("quick_core_idea", core_idea)
+            set_ans("quick_goal_signal", goal_signal)
+            set_ans("quick_weak_point", weak_point)
+
             fallback = {
-                "strengthened_summary": ans("starter_starter_summary",""),
-                "refined_outline": ans("starter_outline", []),
-                "new_flags": [x for x in [support_gap, weakness] if x],
+                "result_summary": "A workable writing starter has been built from the Layer 1 context and the writer’s own explanation.",
+                "working_title": ans("layer1_best_direction_title") or "Working paper title",
+                "working_question": "What should this paper prove or clarify based on the writer’s core idea?",
+                "outline": [
+                    "Introduction and legal problem",
+                    "Legal framework or doctrine",
+                    "Main legal argument",
+                    "What follows from that argument",
+                    "Conclusion",
+                ],
             }
             system = """
-Refine the current article starter based on optional writer answers.
+You are helping a writer move fast. Use the Layer 1 context and the writer's own words.
 Return JSON with:
-strengthened_summary
-refined_outline
-new_flags
+result_summary
+working_title
+working_question
+outline
+Do not invent a new argument. Push forward what is already there.
 """
-            user = f"""Current summary: {ans('starter_starter_summary','')}
-Current outline: {ans('starter_outline',[])}
-Inside the paper: {scope_in}
-Consequence or result to show: {consequence}
-Missing authority: {support_gap}
-Weakness: {weakness}
+            user = f"""
+Layer 1 summary: {ans("layer1_materials_summary")}
+Suggested starting point: {ans("quick_selected_point_user_edit") or ans("quick_selected_point")}
+Writer's core idea: {core_idea}
+Desired result: {goal_signal}
+Weak point: {weak_point}
+Extra consideration: {ans("quick_extra_consideration","")}
 """
-            with st.spinner("Adding to the paper..."):
-                data = call_model_json("add_to_paper", system, user, fallback)
-            set_ans("deepen_strengthened_summary", data.get("strengthened_summary"))
-            set_ans("deepen_refined_outline", data.get("refined_outline"))
-            set_ans("deepen_new_flags", data.get("new_flags", []))
-            for f in data.get("new_flags", []):
-                add_flag(f)
+            with st.spinner("Building the quick starter..."):
+                data = call_model_json("quick_core_idea", system, user, fallback)
+
+            set_ans("quick_result_summary", data.get("result_summary"))
+            set_ans("quick_working_title", data.get("working_title"))
+            set_ans("quick_working_question", data.get("working_question"))
+            set_ans("quick_outline", data.get("outline", []))
             st.session_state.project["step"] = 4
-            touch()
             st.rerun()
 
+        if ans("quick_result_summary"):
+            st.markdown("### Current quick starter")
+            st.write(ans("quick_result_summary"))
+            st.write(f"**Working title**: {ans('quick_working_title')}")
+            st.write(f"**Working question**: {ans('quick_working_question')}")
+
     elif step == 4:
-        st.markdown("## Step 5 — Start Writing Package")
-        downstream_warning(4)
-        quote_box("What to do here", "This step gives you a usable drafting package right away. To make the paper your own, it gives you cues and starting language, not a finished article.")
+        st.markdown("## Step 5 — Quick Writing Starter")
+        revisit_warning("quick", 4)
+        quote_box(
+            "What to do here",
+            "This step gives you a rough but usable writing starter: an abstract seed, opening options, and section cues. The point is not to perfect the paper. The point is to help you start writing now."
+        )
         st.markdown(f'<span class="req">Required</span><span class="opt">Time: {TIME_EST["quick_4"]}</span>', unsafe_allow_html=True)
-        if st.button("Create the writing package", type="primary"):
-            outline = ans("deepen_refined_outline") or ans("starter_outline", [])
+
+        if st.button("Create quick writing starter", type="primary"):
+            outline = ans("quick_outline", [])
             fallback = {
-                "abstract_seed": ans("starter_abstract_seed",""),
+                "abstract_seed": "This article examines a legal issue surfaced in the lecture and clarifies the legal position it takes.",
                 "opening_options": [
-                    "Start with the legal problem in direct terms.",
-                    "Start with a case, doctrine, or rule already visible in the lecture.",
-                    "Start with the legal consequence the paper wants to show.",
+                    "Start with the legal problem directly.",
+                    "Start with the doctrinal tension already visible in the lecture.",
+                    "Start with the consequence your paper wants to show.",
                 ],
-                "section_cues": {x: f"What do you want to say in '{x}' that your lecture already supports?" for x in outline},
-                "ownership_prompt": "To make the paper your own, write one short paragraph explaining the paper’s main legal point in your own voice before drafting the first section.",
+                "section_cues": {x: f"What do you want to say in '{x}' in your own words?" for x in outline},
+                "write_now_prompt": "Write one section now in your own words. Do not edit yet. Keep going.",
             }
             system = """
-Create a practical writing package for a busy lecturer.
+Create a rough writing starter from the existing context.
 Return JSON with:
 abstract_seed
 opening_options
 section_cues
-ownership_prompt
+write_now_prompt
+This is Quick Pass. Keep it light and useful.
 """
-            user = f"""Outline: {outline}
-Summary: {ans('deepen_strengthened_summary') or ans('starter_starter_summary')}
-Main point result: {st.session_state.project['outputs'].get('main_point_result',{})}
-Flags: {st.session_state.project['flags']}
+            user = f"""
+Layer 1 context summary: {ans("layer1_materials_summary")}
+Chosen starting point: {ans("quick_selected_point_user_edit") or ans("quick_selected_point")}
+Writer's core idea: {ans("quick_core_idea")}
+Current outline: {ans("quick_outline", [])}
 """
-            with st.spinner("Creating the writing package..."):
-                data = call_model_json("writing_package", system, user, fallback)
-            set_ans("writing_package", data)
+            with st.spinner("Creating the quick writing starter..."):
+                data = call_model_json("quick_writing_starter", system, user, fallback)
+            set_ans("quick_writing_package", data)
             st.session_state.project["step"] = 5
-            touch()
             st.rerun()
 
+        if ans("quick_writing_package"):
+            wp = ans("quick_writing_package")
+            st.markdown("### Quick writing starter")
+            st.write("**Abstract seed**")
+            st.write(wp.get("abstract_seed", ""))
+            st.write("**Opening options**")
+            for item in wp.get("opening_options", []):
+                st.markdown(f"- {item}")
+            st.write("**Section cues**")
+            for k, v in wp.get("section_cues", {}).items():
+                st.markdown(f"**{k}** — {v}")
+
     elif step == 5:
-        st.markdown("## Step 6 — Review & Export")
-        quote_box("What to do here", "This is the end of Quick Pass. Export your files, then start writing. After this, you may continue to Deep Pass to strengthen the paper further.")
+        st.markdown("## Step 6 — Write Now & Export")
+        quote_box(
+            "What to do here",
+            "This is the end of Quick Pass. You now have enough to start writing. Do not edit first. Write first. Export your files, then draft one section in your own words."
+        )
         st.markdown(f'<span class="req">Required</span><span class="opt">Time: {TIME_EST["quick_5"]}</span>', unsafe_allow_html=True)
+
         if st.session_state.project["flags"]:
-            st.write("**Carry-forward flags**")
+            st.markdown("### Carry-forward flags")
             for f in st.session_state.project["flags"]:
                 st.markdown(f'<span class="flag">{f}</span>', unsafe_allow_html=True)
-        st.markdown("### Your exports")
-        st.caption("You have two export types: one for humans, one for machines.")
-        st.download_button("Download human-readable pre-writing kit (.docx)", data=make_human_export(), file_name=f"pre_writing_kit_{APP_VERSION}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
-        st.download_button("Download machine-readable checkpoint (.json)", data=make_machine_export(), file_name=f"checkpoint_{APP_VERSION}.json", mime="application/json")
-        st.markdown("### What to do after Quick Pass")
-        st.write("1. Export your files.")
-        st.write("2. You may already begin drafting from the kit.")
-        st.write("3. If you want to improve the paper before drafting, continue to Deep Pass.")
-        if st.button("Continue to Deep Pass"):
-            st.session_state.project["phase"] = "deep"
+
+        wp = ans("quick_writing_package") or {}
+        if wp:
+            st.info(wp.get("write_now_prompt", "Write one section now in your own words. Do not edit yet."))
+
+        st.markdown("### Exports")
+        st.caption("Export one file for people and one file for the system.")
+        st.download_button(
+            "Download human-readable pre-writing kit (.docx)",
+            data=make_human_export(),
+            file_name=f"pre_writing_kit_{APP_VERSION}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            type="primary",
+        )
+        st.download_button(
+            "Download machine-readable checkpoint (.json)",
+            data=make_machine_export(),
+            file_name=f"checkpoint_{APP_VERSION}.json",
+            mime="application/json",
+        )
+
+        st.markdown("### What to do next")
+        st.write("1. Open the human-readable pre-writing kit.")
+        st.write("2. Read it once without editing.")
+        st.write("3. Write one section in your own words.")
+        st.write("4. Keep writing before refining.")
+        st.write("5. Return to Full Pass only if you want to make the paper stronger.")
+
+        if st.button("Move to Full Pass"):
+            st.session_state.project["phase"] = "full"
             st.session_state.project["step"] = 0
             touch()
             st.rerun()
 
-# DEEP PASS
+# -----------------------------------
+# FULL PASS
+# -----------------------------------
 else:
     if step == 0:
-        st.markdown("## Deep Pass — Step 1 — Strengthen Support")
-        quote_box("What this step does", "This step revisits your paper only after Quick Pass is done. It helps identify stronger authorities, missing support, and support priorities without restarting the whole workflow.")
-        st.markdown(f'<span class="req">Required for Deep Pass</span><span class="opt">Time: {TIME_EST["deep_0"]}</span>', unsafe_allow_html=True)
-        current_flags = st.session_state.project["flags"]
-        if current_flags:
-            st.write("Current carry-forward flags")
-            for f in current_flags:
-                st.markdown(f'<span class="flag">{f}</span>', unsafe_allow_html=True)
-        more_sources = st.text_area("What sources, cases, or authorities do you now want to add or prioritize?", value=ans("deep_support_input",""), height=120)
-        if st.button("Strengthen support", type="primary"):
-            set_ans("deep_support_input", more_sources)
-            fallback = {
-                "support_summary": "The paper now has a clearer list of authorities to prioritize.",
-                "support_priorities": ["Add the strongest directly relevant authority first.", "Mark which authorities support the main point and which only add background."],
-                "new_flags": [],
-            }
-            system = """
-Strengthen support for an existing article starter.
-Return JSON with:
-support_summary
-support_priorities
-new_flags
-"""
-            user = f"""Current outline: {ans('deepen_refined_outline') or ans('starter_outline')}
-Current flags: {current_flags}
-New source priorities: {more_sources}
-Authorities already mentioned: {ans('materials_authorities_mentioned',[])}
-"""
-            with st.spinner("Strengthening support..."):
-                data = call_model_json("deep_strengthen_support", system, user, fallback)
-            set_ans("deep_support_summary", data.get("support_summary"))
-            set_ans("deep_support_priorities", data.get("support_priorities", []))
-            for f in data.get("new_flags", []):
-                add_flag(f)
+        st.markdown("## Full Pass — Step 1 — Verify Authorities")
+        revisit_warning("full", 0)
+        quote_box(
+            "What to do here",
+            "Full Pass begins only after Quick Pass. This first step shows the authorities identified in Layer 1. Confirm what belongs, remove what does not, and add anything missing."
+        )
+        st.markdown(f'<span class="req">Required for Full Pass</span><span class="opt">Time: {TIME_EST["full_0"]}</span>', unsafe_allow_html=True)
+
+        authorities = ans("layer1_authorities", [])
+        confirmed, removals = [], []
+        additions = st.text_area("Add any missing authority, case, law, or rule", value=ans("full_authority_additions", ""), height=90)
+
+        st.markdown("### Authorities from Layer 1")
+        if authorities:
+            for i, item in enumerate(authorities, 1):
+                label = item
+                if isinstance(item, dict):
+                    pieces = []
+                    if item.get("name"):
+                        pieces.append(item["name"])
+                    if item.get("type"):
+                        pieces.append(f"[{item['type']}]")
+                    if item.get("verified_link"):
+                        pieces.append(item["verified_link"])
+                    label = " — ".join(pieces) if pieces else str(item)
+                keep = st.checkbox(f"Keep {i}. {label}", value=True, key=f"auth_keep_{i}")
+                if keep:
+                    confirmed.append(item)
+                else:
+                    removals.append(item)
+        else:
+            st.caption("No authorities were loaded from Layer 1.")
+
+        if st.button("Confirm authorities", type="primary"):
+            set_ans("full_verified_authorities", confirmed)
+            set_ans("full_authority_removals", removals)
+            set_ans("full_authority_additions", additions)
             st.session_state.project["step"] = 1
-            touch()
             st.rerun()
-        if ans("deep_support_summary"):
-            st.write(ans("deep_support_summary"))
-            for item in ans("deep_support_priorities", []):
-                st.markdown(f"- {item}")
 
     elif step == 1:
-        st.markdown("## Deep Pass — Step 2 — Tighten the Argument")
-        quote_box("What this step does", "This step helps narrow, sharpen, or stress-test the paper’s main legal point after Quick Pass has already produced a usable draft path.")
-        st.markdown(f'<span class="req">Required for Deep Pass</span><span class="opt">Time: {TIME_EST["deep_1"]}</span>', unsafe_allow_html=True)
-        stress = st.text_area("What part of the current argument still feels too broad, weak, or under-defined?", value=ans("deep_argument_input",""), height=120)
-        if st.button("Tighten the argument", type="primary"):
-            set_ans("deep_argument_input", stress)
+        st.markdown("## Full Pass — Step 2 — Tighten the Claim")
+        revisit_warning("full", 1)
+        quote_box(
+            "What to do here",
+            "Now that you already have a starter, rewrite the one claim your paper must prove. Keep it in one sentence."
+        )
+        st.markdown(f'<span class="req">Required for Full Pass</span><span class="opt">Time: {TIME_EST["full_1"]}</span>', unsafe_allow_html=True)
+
+        refined_claim = st.text_area(
+            "What is the one claim your paper must prove?",
+            value=ans("full_refined_claim", ""),
+            height=100,
+        )
+
+        if st.button("Tighten claim", type="primary"):
+            set_ans("full_refined_claim", refined_claim)
+            st.session_state.project["step"] = 2
+            st.rerun()
+
+    elif step == 2:
+        st.markdown("## Full Pass — Step 3 — Strengthen Support")
+        revisit_warning("full", 2)
+        quote_box(
+            "What to do here",
+            "This step helps identify where your argument still needs stronger support. Use it to name the weakest supported part of the paper."
+        )
+        st.markdown(f'<span class="req">Required for Full Pass</span><span class="opt">Time: {TIME_EST["full_2"]}</span>', unsafe_allow_html=True)
+
+        support_need = st.text_area(
+            "What part of the paper still needs stronger support?",
+            value=ans("full_support_needs", ""),
+            height=110,
+        )
+
+        if st.button("Strengthen support", type="primary"):
+            set_ans("full_support_needs", support_need)
             fallback = {
-                "argument_summary": "The argument has been tightened by clarifying what the paper must prove and what it should leave aside.",
-                "narrowing_moves": ["Make the main claim more precise.", "Cut side issues that do not help prove the main legal point."],
+                "support_summary": "The paper needs stronger support in the area identified by the writer.",
                 "new_flags": [],
             }
             system = """
-Tighten an existing article argument after a quick pass.
+Strengthen support for an existing paper starter.
 Return JSON with:
-argument_summary
-narrowing_moves
+support_summary
 new_flags
 """
-            user = f"""Current legal point: {st.session_state.project['outputs'].get('main_point_result',{})}
-Current outline: {ans('deepen_refined_outline') or ans('starter_outline')}
-Current concern: {stress}
+            user = f"""
+Refined claim: {ans("full_refined_claim")}
+Support need: {support_need}
+Verified authorities: {ans("full_verified_authorities", [])}
+Added authorities: {ans("full_authority_additions", "")}
 """
-            with st.spinner("Tightening the argument..."):
-                data = call_model_json("deep_tighten_argument", system, user, fallback)
-            set_ans("deep_argument_summary", data.get("argument_summary"))
-            set_ans("deep_narrowing_moves", data.get("narrowing_moves", []))
+            with st.spinner("Strengthening support..."):
+                data = call_model_json("full_strengthen_support", system, user, fallback)
+            set_ans("full_support_summary", data.get("support_summary"))
             for f in data.get("new_flags", []):
                 add_flag(f)
-            st.session_state.project["step"] = 2
-            touch()
+            st.session_state.project["step"] = 3
             st.rerun()
-        if ans("deep_argument_summary"):
-            st.write(ans("deep_argument_summary"))
-            for item in ans("deep_narrowing_moves", []):
-                st.markdown(f"- {item}")
 
-    elif step == 2:
-        st.markdown("## Deep Pass — Step 3 — Improve the Writing Pack")
-        quote_box("What this step does", "This final Deep Pass step improves the package you will draft from: stronger opening options, clearer section cues, and a tighter abstract seed.")
-        st.markdown(f'<span class="req">Required for Deep Pass</span><span class="opt">Time: {TIME_EST["deep_2"]}</span>', unsafe_allow_html=True)
-        improve_note = st.text_area("What part of the writing package do you want to improve most?", value=ans("deep_writing_input",""), height=120)
-        if st.button("Improve the writing pack", type="primary"):
-            set_ans("deep_writing_input", improve_note)
+        if ans("full_support_summary"):
+            st.write(ans("full_support_summary"))
+
+    elif step == 3:
+        st.markdown("## Full Pass — Step 4 — Improve Writing Pack")
+        revisit_warning("full", 3)
+        quote_box(
+            "What to do here",
+            "This step improves the writing package you already have. It should make it easier to keep writing, not restart the whole process."
+        )
+        st.markdown(f'<span class="req">Required for Full Pass</span><span class="opt">Time: {TIME_EST["full_3"]}</span>', unsafe_allow_html=True)
+
+        improve_note = st.text_area(
+            "What part of the writing package do you want improved most?",
+            value=ans("full_improve_note", ""),
+            height=100,
+        )
+
+        if st.button("Improve writing pack", type="primary"):
+            set_ans("full_improve_note", improve_note)
             fallback = {
-                "writing_summary": "The writing package has been improved to make drafting easier and more direct.",
-                "extra_opening_options": ["Use the sharpest legal conflict first.", "Open with the clearest practical consequence for the field."],
+                "writing_summary": "The writing package has been improved for clearer drafting.",
+                "improved_writing_pack": {
+                    "extra_opening_options": ["Start with the sharpest legal conflict first."],
+                    "extra_section_prompt": "In your own words, explain why this section matters to the paper’s main claim.",
+                }
             }
             system = """
-Improve an existing writing package after quick pass.
+Improve an existing writing pack after quick pass.
 Return JSON with:
 writing_summary
-extra_opening_options
+improved_writing_pack
 """
-            user = f"""Current writing package: {ans('writing_package')}
+            user = f"""
+Current quick writing package: {ans("quick_writing_package")}
+Refined claim: {ans("full_refined_claim")}
+Support summary: {ans("full_support_summary")}
 Improvement requested: {improve_note}
 """
-            with st.spinner("Improving the writing pack..."):
-                data = call_model_json("deep_improve_writing_pack", system, user, fallback)
-            set_ans("deep_writing_summary", data.get("writing_summary"))
-            set_ans("deep_extra_opening_options", data.get("extra_opening_options", []))
-            touch()
-            st.success("Deep Pass complete.")
-        if ans("deep_writing_summary"):
-            st.write(ans("deep_writing_summary"))
-            for item in ans("deep_extra_opening_options", []):
-                st.markdown(f"- {item}")
-            st.markdown("### Final exports")
-            st.download_button("Download updated human-readable pre-writing kit (.docx)", data=make_human_export(), file_name=f"pre_writing_kit_{APP_VERSION}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
-            st.download_button("Download updated machine-readable checkpoint (.json)", data=make_machine_export(), file_name=f"checkpoint_{APP_VERSION}.json", mime="application/json")
+            with st.spinner("Improving writing pack..."):
+                data = call_model_json("full_improve_writing_pack", system, user, fallback)
+            set_ans("full_improved_writing_summary", data.get("writing_summary"))
+            set_ans("full_improved_writing_pack", data.get("improved_writing_pack"))
+            st.session_state.project["step"] = 4
+            st.rerun()
+
+    elif step == 4:
+        st.markdown("## Full Pass — Step 5 — Export Refined Pack")
+        quote_box(
+            "What to do here",
+            "Full Pass is complete. Export the updated files and continue writing. The point of this stage was to strengthen what already existed, not to stop momentum."
+        )
+        st.markdown(f'<span class="req">Required for Full Pass</span><span class="opt">Time: {TIME_EST["full_4"]}</span>', unsafe_allow_html=True)
+
+        if ans("full_improved_writing_summary"):
+            st.write(ans("full_improved_writing_summary"))
+        if st.session_state.project["flags"]:
+            st.markdown("### Carry-forward flags")
+            for f in st.session_state.project["flags"]:
+                st.markdown(f'<span class="flag">{f}</span>', unsafe_allow_html=True)
+
+        st.download_button(
+            "Download updated human-readable pre-writing kit (.docx)",
+            data=make_human_export(),
+            file_name=f"pre_writing_kit_{APP_VERSION}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            type="primary",
+        )
+        st.download_button(
+            "Download updated machine-readable checkpoint (.json)",
+            data=make_machine_export(),
+            file_name=f"checkpoint_{APP_VERSION}.json",
+            mime="application/json",
+        )
+
+        st.markdown("### What to do next")
+        st.write("1. Open the updated pre-writing kit.")
+        st.write("2. Keep writing in your own words.")
+        st.write("3. Use Full Pass changes only to strengthen, not to restart.")

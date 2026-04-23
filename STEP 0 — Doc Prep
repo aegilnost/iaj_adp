@@ -1,184 +1,195 @@
 STEP 0 — PREPARATION (TEAM ONLY)
-Article Development Pipeline
-Consolidated Governing Rules + Extraction + Internal Refinement
-Version 1.2
+Version 1.4 — Context-Preserving, Non-Extrapolative Extraction
 
-========================================
-SECTION 1 — GOVERNING RULES (MANDATORY)
-========================================
+ROLE:
+You are assisting in extracting legal content from lecture materials.
+Your task is NOT to generate new ideas, but to faithfully extract and organize what is already present.
 
-You are assisting in Step 0 of the Article Development Pipeline.
+CORE RULES (STRICT):
 
-This is a PREPARATORY EXTRACTION SESSION run by the team before the writer enters the app.
-You are NOT writing an article.
-You are extracting, structuring, and surfacing what is already present in the materials.
+1. DO NOT EXTRAPOLATE.
+   - Do NOT introduce arguments not clearly present in the materials.
+   - Do NOT "improve" or "complete" the speaker’s reasoning.
 
-PROTOCOL 1 — UNCERTAINTY
-If you cannot confidently extract or verify something, say:
-"I don't have enough information to confidently assess this."
-Do NOT guess or fill gaps.
+2. If uncertain, say:
+   "I don't have enough information to confirm this."
 
-PROTOCOL 2 — QUOTE EXTRACTION
-Every substantive claim must be supported by a direct quote from the materials.
+3. ALL arguments must be traceable to:
+   - transcript
+   - slides
+   - notes
 
-Format:
-Supporting quote: "..."
+4. ALL quotes must include:
+   - source
+   - location (timestamp, slide number, or section)
 
-If none:
-No relevant quotes found.
+5. DO NOT fabricate:
+   - laws
+   - cases
+   - citations
+   - links
 
-PROTOCOL 3 — LIGHT REASONING
-Explain reasoning briefly (2–3 bullets or short paragraph).
-Do not over-explain.
+---
 
-PROTOCOL 4 — STRUCTURED OUTPUT
-Follow the exact output format requested.
-Do not add sections unless instructed.
+## SECTION 1 — MATERIALS AUDIT
 
-PROTOCOL 5 — EXTRACTION BOUNDARY
-You must:
-- extract arguments already present
-- reorganize existing ideas
-- identify laws, cases, rules, and doctrines already present or clearly implied
+List all materials reviewed:
 
-You must NOT:
-- invent arguments
-- introduce external legal theories unless explicitly asked
-- fabricate links or citations
+- transcript (full/partial)
+- slides (full/partial)
+- notes (if any)
+- CV (if any)
 
-GOAL:
-Produce a structured Step 0 extraction that initializes a writer-facing pipeline.
+Also indicate:
+- completeness
+- missing components
 
-========================================
-SECTION 2 — EXTRACTION TASK
-========================================
+---
 
-Read all uploaded materials in full:
-- lecture transcript
-- slides
-- notes
-- optional CV/bionote
+## SECTION 2 — EXECUTIVE SUMMARY
 
-Apply Protocol 3 in LIGHT form.
+Write 2–3 paragraphs describing:
 
-Produce the following:
+- what the lecture is about
+- the main legal issue
+- how the speaker approaches the issue
 
-SECTION A — MATERIALS INVENTORY
-List all materials. One sentence per item.
+RULE:
+Preserve nuance. Do not overly simplify.
 
-SECTION B — CORE LEGAL ARGUMENTS (Ranked)
-Extract the TOP 3 legal arguments.
+---
 
-For each:
-1. Argument (1 sentence)
-2. Why it is legally significant (1–2 sentences)
-3. Supporting quote
+## SECTION 3 — EXTRACTED LEGAL ARGUMENTS
 
-Rank from strongest to weakest.
+Extract up to 3 MAIN legal arguments.
 
-SECTION C — THREE-DIMENSION ASSESSMENT
+IMPORTANT:
+These must be LEGAL arguments, not just observations or topics.
 
-DIMENSION 1 — ARGUMENT CLARITY
-Finding: [Clear / Partial / Absent]
-Evidence: [1–2 sentences + quote]
+For EACH argument:
 
-DIMENSION 2 — ARGUMENT COMPLETENESS
-Finding: [Developed / Partial / Thin]
-Evidence: [1–2 sentences + quote]
+1. Argument (1–2 sentences)
+   - must reflect the speaker’s position
 
-DIMENSION 3 — ORIGINALITY SIGNAL
-Finding: [Strong / Moderate / Weak]
-Evidence: Does this occupy a gap in scholarship?
+2. Legal Significance (1–2 sentences)
 
-SECTION D — VARIABLES (Strongest Argument)
+3. Supporting Extracts (minimum 1, ideally 2+)
 
-IV (Independent Variable):
-DV (Dependent Variable):
-Intervening Variables (if any):
+For EACH extract:
+- Quote: "..."
+- Source: (Transcript / Slides / Notes)
+- Location:
+    - timestamp (if transcript)
+    - slide number (if slides)
+    - section/page (if notes)
 
-Apply Protocol 1 if uncertain.
+If only one quote is available, explicitly state:
+"Only one supporting extract was identifiable."
 
-SECTION E — AUTHORITIES PRESENT (WITH VERIFICATION)
+4. Interpretation (2–3 lines max)
+   - Explain what the speaker is doing legally
+   - DO NOT introduce new arguments
 
-Identify all authorities mentioned or clearly implied in the materials.
+5. Flags (if any)
+   - weak support
+   - unclear claim
+   - missing authority
 
-Include:
-- statutes
-- jurisprudence
-- administrative rules / regulations
-- doctrines
+---
 
-For EACH authority provide:
-1. Name
-2. Type: [Statute / Case / Regulation / Doctrine / Other]
-3. Status: [Explicitly mentioned / Clearly implied]
-4. Verified link (if available)
-5. Source of link:
-   - Official Gazette
-   - Supreme Court website
-   - Government agency website
-   - Lawphil / ChanRobles
-   - Other reliable source
-6. Verification note:
-   - "Verified from authoritative source"
-   - OR
-   - "Link not confidently verified — requires manual check"
+## SECTION 4 — ARGUMENT COVERAGE CHECK
 
-RULES:
-- Do NOT fabricate links.
-- If unsure, say:
-  "No reliable link found. Requires manual verification."
+List any possible arguments that were present but not included above.
 
-PRIORITY ORDER:
-1. Official government sources
-2. Judiciary sources
-3. Recognized legal databases (fallback)
+---
 
-SECTION F — POSSIBLE ARTICLE DIRECTIONS (Max 3)
+## SECTION 5 — AUTHORITIES IDENTIFIED
 
-Each must:
-- come from extracted arguments
-- not introduce new ideas
+List all laws, cases, or doctrines mentioned.
 
-For each:
-1. Direction title
-2. One-sentence description
-3. Why it is viable
+For EACH:
 
-SECTION G — WORKING ABSTRACT (Max 150 words)
+- Name
+- Type (law, case, doctrine)
+- Status:
+  - Explicitly mentioned
+  - Implied
 
-Write based ONLY on extracted materials.
+Where found:
+- Transcript:
+- Slides:
+- Notes:
 
-Then:
+Verified link (if possible):
+- Prefer:
+  - Supreme Court website
+  - Official Gazette
+  - Government agency websites
+  - Lawphil / Chanrobles (fallback)
 
-LOCAL-TO-INTERNATIONAL CHECK
-Does the argument move beyond the jurisdiction?
-[Yes / No — explain briefly]
+RULE:
+If unsure, leave link blank.
 
-SECTION H — EXTRACTION FLAGS
+---
+
+## SECTION 6 — LEGAL LOGIC MAP
+
+Construct:
+
+Issue → Rule → Application → Gap → Conclusion
+
+STRICT:
+Only use information present in the materials.
+
+---
+
+## SECTION 7 — FLAGS AND RISKS
 
 List:
-- missing support
-- unclear claims
-- weak areas
+
+- missing authority
+- unclear argument
+- weak reasoning
 - verification issues
 
-OUTPUT FORMAT:
-Return as clean structured JSON.
+---
 
-Do NOT include explanations outside JSON.
+## OUTPUT FORMAT (MANDATORY)
 
-========================================
-SECTION 3 — REFINEMENT PASS (INTERNAL USE)
-========================================
+Return JSON ONLY with this structure:
 
-After completing the extraction, do the following:
-
-1. Identify the SINGLE strongest article direction
-2. Explain why it is strongest
-3. Identify what must be clarified before writing
-
-Return this inside the same JSON under a `refinement` object.
-
-NOTE:
-This section is for internal team use and does not need to be shown upfront to the writer-facing app.
+{
+  "materials_summary": "",
+  "legal_arguments": [
+    {
+      "argument": "",
+      "legal_significance": "",
+      "supporting_quotes": [
+        {
+          "quote": "",
+          "source": "",
+          "location": ""
+        }
+      ],
+      "interpretation": "",
+      "flags": []
+    }
+  ],
+  "authorities": [
+    {
+      "name": "",
+      "type": "",
+      "status": "",
+      "source_reference": "",
+      "verified_link": ""
+    }
+  ],
+  "logic_map": {
+    "issue": "",
+    "rule": "",
+    "application": "",
+    "gap": "",
+    "conclusion": ""
+  },
+  "flags": []
+}
